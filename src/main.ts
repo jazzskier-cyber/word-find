@@ -30,15 +30,17 @@ const onlineBoard = isInsideOneGpPlayer() ? new OneGpLeaderboard() : null;
 const leaderboardUrl = 'https://www.ai-made.games/games/word-find-6b0682c6/leaderboard?board=f8de4541-68e7-48ee-af68-ac37d6df6834';
 let activeRound: BoardRun | null = null;
 
-type ScoreCycle = { scores: number[] };
+type ScoreCycle = { scores: number[]; total: number };
 const cycleKey = 'word-find-score-cycle-v1';
 const bestKey = 'word-find-best-cycle-v1';
 function readCycle(): ScoreCycle {
   try {
-    const value = JSON.parse(localStorage.getItem(cycleKey) || '{}') as { scores?: unknown[] };
+    const value = JSON.parse(localStorage.getItem(cycleKey) || '{}') as { scores?: unknown[]; total?: unknown };
     const scores = value.scores ?? [];
-    return { scores: Array.from({ length: levels.length }, (_, i) => Number.isSafeInteger(scores[i]) ? Math.max(0, Number(scores[i])) : 0) };
-  } catch { return { scores: Array(levels.length).fill(0) as number[] }; }
+    const normalized = Array.from({ length: levels.length }, (_, i) => Number.isSafeInteger(scores[i]) ? Math.max(0, Number(scores[i])) : 0);
+    const total = Number.isSafeInteger(value.total) ? Math.max(0, Number(value.total)) : normalized.reduce((sum, score) => sum + score, 0);
+    return { scores: normalized, total };
+  } catch { return { scores: Array(levels.length).fill(0) as number[], total: 0 }; }
 }
 function writeCycle(cycle: ScoreCycle): void {
   try { localStorage.setItem(cycleKey, JSON.stringify(cycle)); } catch { /* Private browsing can disable storage. */ }
@@ -132,7 +134,7 @@ const header = () => '<header class="topbar"><button class="wordmark" id="wordma
 function renderHome(): void {
   clearTimeout(hintTimer); clearTimeout(feedbackTimer);
   const cycle = readCycle();
-  const cycleTotal = cycle.scores.reduce((sum, score) => sum + score, 0);
+  const cycleTotal = cycle.total;
   const levelsPlayed = cycle.scores.filter(score => score > 0).length;
   app.innerHTML = `<main class="app-shell home-screen">${header()}<section class="hero"><div><h1>Little words.<br><span>Big smiles.</span></h1><p>Find a few words. Feel a little lighter.</p></div><div class="hero-buddy">${buddy()}<span class="hero-sparkle">✦</span></div></section><section class="home-themes"><h2>Where shall we wander?</h2><div class="theme-grid">${themes.map((theme, i) => `<button class="theme-card ${i === themeIndex ? 'selected' : ''}" data-theme="${i}" style="--accent:${theme.color}" aria-pressed="${i === themeIndex}"><span class="theme-icon">${icon(theme.icon)}</span><span class="theme-copy"><strong>${theme.name}</strong><small>${theme.note}</small></span>${i === themeIndex ? '<span class="theme-check">✓</span>' : ''}</button>`).join('')}</div></section><section class="home-levels"><h2>A little easy, or a little brave?</h2><div class="level-grid">${levels.map((level, i) => `<button class="level-card ${i === levelIndex ? 'selected' : ''}" data-level="${i}" aria-pressed="${i === levelIndex}"><strong>${level.name}</strong><small>${level.detail}</small></button>`).join('')}</div></section><p class="cycle-score">Current cycle: <strong>${cycleTotal}</strong> points · ${levelsPlayed}/${levels.length} difficulties scored</p><div class="home-action"><p>No rush. Your little word buddy is here.</p><button class="primary-button" id="start">Let's find some words! <span>→</span></button><small>a pocketful of words, a moment just for you</small></div></main>`;
   app.querySelectorAll<HTMLButtonElement>('[data-theme]').forEach(button => button.addEventListener('click', () => { themeIndex = Number(button.dataset.theme); renderHome(); }));
@@ -165,7 +167,7 @@ function renderBoard(): void {
 function renderGame(): void {
   const theme = themes[themeIndex], size = grid.length;
   const cycle = readCycle();
-  const cycleTotal = cycle.scores.reduce((sum, score) => sum + score, 0);
+  const cycleTotal = cycle.total;
   const levelsPlayed = cycle.scores.filter(score => score > 0).length;
   app.innerHTML = `<main class="app-shell game-screen">${header()}<div class="game-head"><button class="back-button" id="back">← &nbsp;Wander back</button><div class="game-title"><div><h1>${theme.name}</h1><p id="feedback">${levelIndex === 0 ? "Across or down. You've got this!" : 'Follow the letters. Find a little joy.'}</p></div><div class="game-buddy">${buddy()}</div></div><div class="progress-row"><div class="progress-stars" id="stars">${targets.map(() => '<span>●</span>').join('')}</div><span id="found-count">0 / ${targets.length} little discoveries</span></div><p class="cycle-score">Current cycle: <strong>${cycleTotal}</strong> points · ${levelsPlayed}/${levels.length} difficulties scored</p></div><section class="board-wrap" aria-label="Word search puzzle"><div class="letter-grid" id="letter-grid" style="--size:${size}">${boardSvg()}${grid.flatMap((row, y) => row.map((letter, x) => `<button type="button" class="cell" data-x="${x}" data-y="${y}" aria-label="Row ${y + 1}, column ${x + 1}, ${letter}"><span>${letter}</span></button>`)).join('')}</div></section><section class="words-section"><h2>A pocketful of words</h2><div class="word-list" style="--word-rows:${Math.ceil(targets.length / 2)}">${targets.map((word, i) => `<span class="word-pill" data-word="${word}" style="--pill:${themes[i % themes.length].color}">${word}</span>`).join('')}</div></section><div class="game-foot"><button class="hint-button" id="hint">A tiny hint, please</button><span>Take your time ♡</span></div><div class="completion" id="completion" hidden></div></main>`;
   app.querySelector('#wordmark')?.addEventListener('click', renderHome);
@@ -236,15 +238,17 @@ function showCompletion(): void {
   const score = roundScore();
   const cycle = readCycle();
   cycle.scores[levelIndex] = Math.max(cycle.scores[levelIndex]!, score);
+  cycle.total += score;
   const completeCycle = cycle.scores.every(value => value > 0);
-  const total = cycle.scores.reduce((sum, value) => sum + value, 0);
+  const total = cycle.total;
   const best = completeCycle ? saveBest(total) : readBest();
   // Keep even a completed cycle until the leaderboard accepts it. If submission
   // fails, the saved score remains available for another attempt.
-  writeCycle(cycle);
+  if (!completeCycle || onlineBoard) writeCycle(cycle);
+  else writeCycle({ scores: Array(levels.length).fill(0) as number[], total: 0 });
   const remaining = levels.map((item, index) => cycle.scores[index] ? '' : item.name).filter(Boolean);
   const displayScore = total;
-  const totalLabel = completeCycle ? `round points · best ${best}` : `cycle total · ${remaining.length} level${remaining.length === 1 ? '' : 's'} left`;
+  const totalLabel = completeCycle ? `cycle points · best ${best}` : `cycle total · ${remaining.length} difficulty${remaining.length === 1 ? '' : 'ies'} left`;
   panel.innerHTML = `<div class="complete-card"><span class="complete-sparkle left">✦</span>${buddy(true)}<span class="complete-sparkle right">✦</span><h2>You found them all!</h2><p>A little victory for your day.</p><div class="score-card"><strong>${displayScore}</strong><span>${totalLabel}</span></div><p class="online-status" id="online-status" role="status">${onlineBoard ? 'Saving your accumulated points to the leaderboard…' : (completeCycle ? 'Your best cycle is saved on this device.' : `Level score ${score}. Best per difficulty is kept for your current cycle.`)}</p><button class="retry-score" id="retry-score" hidden>Try saving again</button>${onlineBoard ? `<a class="leaderboard-link" href="${leaderboardUrl}" target="_blank" rel="noopener">See the leaderboard ↗</a>` : ''}<button class="primary-button" id="again">One more little adventure <span>→</span></button><button class="complete-home" id="complete-home">Back to the collections</button></div>`;
   panel.querySelector('#again')?.addEventListener('click', startPuzzle);
   panel.querySelector('#complete-home')?.addEventListener('click', renderHome);
@@ -257,7 +261,12 @@ function showCompletion(): void {
       status.textContent = 'Saving to the leaderboard…';
       try {
         const receipt = await onlineBoard.settleRound(round, total);
-        if (completeCycle) writeCycle({ scores: Array(levels.length).fill(0) as number[] });
+        if (completeCycle) {
+          const current = readCycle();
+          if (current.total === total && current.scores.every((value, index) => value === cycle.scores[index])) {
+            writeCycle({ scores: Array(levels.length).fill(0) as number[], total: 0 });
+          }
+        }
         status.textContent = receipt.rank ? `Saved! Your rank: #${receipt.rank}` : `Accumulated ${total} points saved to the leaderboard.`;
       } catch {
         status.textContent = 'Could not connect. Your best is saved on this device.';

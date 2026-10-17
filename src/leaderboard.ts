@@ -1,12 +1,12 @@
 export const LEADERBOARD_CONFIG = {
   platformOrigin: 'https://www.ai-made.games',
   gameId: '76069ac9-265c-452b-8834-4f4f63c9a345',
-  boardId: 'f8de4541-68e7-48ee-af68-ac37d6df6834',
+  boardId: '4c3da7c0-b408-47a0-a3e0-233182b0eaa2',
   order: 'desc',
   unit: 'points',
   minScore: 0,
-  // Three difficulty bests, each worth up to 1,100 points.
-  maxScore: 3300,
+  // The cycle adds every completed puzzle, including repeated difficulties.
+  maxScore: 1_000_000_000,
   minPlayMs: 0,
   enabled: true,
 } as const;
