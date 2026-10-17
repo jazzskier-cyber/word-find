@@ -43,6 +43,9 @@ button{font:inherit;cursor:pointer}
 .level-card strong,.level-card small{display:block;text-align:center;white-space:nowrap}
 .level-card strong{font-size:15px;font-weight:500}
 .level-card small{font-size:11px;margin-top:5px;color:#93819e}
+.cycle-score{border-radius:99px;background:#f3e7f7;color:#856c99;text-align:center;font-size:11px;padding:7px 12px}
+.cycle-score strong{font-size:14px;font-weight:600;color:#805bac}
+.home-screen>.cycle-score{margin:20px 0 -15px}
 .home-action{margin-top:31px;text-align:center}
 .home-action p{font-size:14px;color:#93819e;margin:0 0 14px}
 .primary-button{border:0;border-radius:99px;background:#9471c6;box-shadow:0 5px #e3d9ec;color:white;min-height:55px;padding:0 24px;font-size:20px;transition:transform .16s,background .16s}
@@ -61,6 +64,7 @@ button{font:inherit;cursor:pointer}
 .progress-row{display:flex;justify-content:space-between;align-items:center;margin:5px 0 17px;color:#9471c6;font-size:12px;gap:8px}
 .progress-stars{display:flex;gap:5px;color:#e3d6ed;font-size:14px;white-space:nowrap}
 .progress-stars .lit{color:#e9ad51;font-size:20px;line-height:14px}
+.game-screen .cycle-score{margin:-7px 0 12px}
 .board-wrap{width:100%;border-radius:28px;background:#fffdff;padding:11px;box-shadow:0 5px #e3d9ec}
 .letter-grid{position:relative;display:grid;grid-template-columns:repeat(var(--size),1fr);width:100%;aspect-ratio:1;touch-action:none;user-select:none}
 .board-art{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;overflow:visible}
