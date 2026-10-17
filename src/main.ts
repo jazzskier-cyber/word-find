@@ -20,25 +20,40 @@ const levels: Level[] = [
 ];
 const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const app = document.querySelector<HTMLDivElement>('#app')!;
-let themeIndex = 0, levelIndex = 0, puzzleIndex = 0;
+let themeIndex = 0, levelIndex = 0;
 let grid: string[][] = [], targets: string[] = [];
 let placements = new Map<string, Point[]>(), found = new Map<string, Point[]>();
 let activePath: Point[] = [], anchor: Point | null = null, hintPoint: Point | null = null;
 let hintTimer = 0, feedbackTimer = 0;
 let startedAt = 0, hintsUsed = 0;
 const onlineBoard = isInsideOneGpPlayer() ? new OneGpLeaderboard() : null;
-const leaderboardUrl = 'https://www.ai-made.games/games/word-find-6b0682c6/leaderboard?board=4929e772-be77-40ce-9427-bdcdc43a6739';
+const leaderboardUrl = 'https://www.ai-made.games/games/word-find-6b0682c6/leaderboard?board=f8de4541-68e7-48ee-af68-ac37d6df6834';
 let activeRound: BoardRun | null = null;
 
-function bestKey(): string { return `word-find-best-v1-${levelIndex}`; }
-function readBest(): number {
-  try { return Math.max(0, Number(localStorage.getItem(bestKey())) || 0); }
-  catch { return 0; }
+type ScoreCycle = { scores: number[] };
+const cycleKey = 'word-find-score-cycle-v1';
+const bestKey = 'word-find-best-cycle-v1';
+function readCycle(): ScoreCycle {
+  try {
+    const value = JSON.parse(localStorage.getItem(cycleKey) || '{}') as { scores?: unknown[] };
+    const scores = value.scores ?? [];
+    return { scores: Array.from({ length: levels.length }, (_, i) => Number.isSafeInteger(scores[i]) ? Math.max(0, Number(scores[i])) : 0) };
+  } catch { return { scores: Array(levels.length).fill(0) as number[] }; }
+}
+function writeCycle(cycle: ScoreCycle): void {
+  try { localStorage.setItem(cycleKey, JSON.stringify(cycle)); } catch { /* Private browsing can disable storage. */ }
 }
 function saveBest(score: number): number {
-  const best = Math.max(readBest(), score);
-  try { localStorage.setItem(bestKey(), String(best)); } catch { /* Private browsing can disable storage. */ }
+  let best = score;
+  try {
+    best = Math.max(Number(localStorage.getItem(bestKey)) || 0, score);
+    localStorage.setItem(bestKey, String(best));
+  } catch { /* Private browsing can disable storage. */ }
   return best;
+}
+function readBest(): number {
+  try { return Math.max(0, Number(localStorage.getItem(bestKey)) || 0); }
+  catch { return 0; }
 }
 function roundScore(): number {
   const seconds = Math.floor((Date.now() - startedAt) / 1000);
@@ -55,7 +70,19 @@ function pathBetween(start: Point, end: Point): Point[] {
 function buildGrid(): void {
   const level = levels[levelIndex], theme = themes[themeIndex];
   const source = (levelIndex ? theme.words : theme.easy).filter(word => word.length <= level.size);
-  targets = Array.from({ length: level.count }, (_, i) => source[(puzzleIndex * level.count + i) % source.length]);
+  const previousKey = `word-find-last-puzzle-v1-${themeIndex}-${levelIndex}`;
+  let previous: string[] = [];
+  try { previous = JSON.parse(localStorage.getItem(previousKey) || '[]') as string[]; } catch { /* Ignore invalid saved puzzle state. */ }
+  let shuffled = [...source];
+  let signature = '';
+  for (let retry = 0; retry < 20; retry++) {
+    shuffled = [...source];
+    for (let i = shuffled.length - 1; i > 0; i--) { const j = random(i + 1); [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]; }
+    targets = shuffled.slice(0, level.count);
+    signature = [...targets].sort().join('|');
+    if (signature !== [...previous].sort().join('|')) break;
+  }
+  try { localStorage.setItem(previousKey, JSON.stringify(targets)); } catch { /* Private browsing can disable storage. */ }
   const ordered = [...targets].sort((a, b) => b.length - a.length);
   let complete = false;
   for (let retry = 0; retry < 30 && !complete; retry++) {
@@ -112,7 +139,11 @@ function renderHome(): void {
 }
 function startPuzzle(): void {
   buildGrid(); found = new Map(); activePath = []; anchor = null; hintPoint = null; hintsUsed = 0; startedAt = Date.now();
-  activeRound = onlineBoard?.beginRound(levelIndex) ?? null;
+  const cycle = readCycle();
+  const otherLevelsPlayed = cycle.scores.filter((score, index) => index !== levelIndex && score > 0).length;
+  activeRound = onlineBoard && cycle.scores[levelIndex] === 0 && otherLevelsPlayed === levels.length - 1
+    ? onlineBoard.beginRound(levelIndex)
+    : null;
   renderGame();
 }
 function boardSvg(): string {
@@ -200,11 +231,20 @@ function finishSelection(): void {
 function showCompletion(): void {
   const panel = document.querySelector<HTMLElement>('#completion')!;
   panel.hidden = false;
-  const score = roundScore(), best = saveBest(score);
-  panel.innerHTML = `<div class="complete-card"><span class="complete-sparkle left">✦</span>${buddy(true)}<span class="complete-sparkle right">✦</span><h2>You found them all!</h2><p>A little victory for your day.</p><div class="score-card"><strong>${score}</strong><span>pocket points · best ${best}</span></div><p class="online-status" id="online-status" role="status">${onlineBoard ? 'Saving to the leaderboard…' : 'Your best is saved on this device.'}</p><button class="retry-score" id="retry-score" hidden>Try saving again</button><a class="leaderboard-link" href="${leaderboardUrl}" target="_blank" rel="noopener">See the leaderboard ↗</a><button class="primary-button" id="again">One more little adventure <span>→</span></button><button class="complete-home" id="complete-home">Back to the collections</button></div>`;
-  panel.querySelector('#again')?.addEventListener('click', () => { puzzleIndex++; startPuzzle(); });
+  const score = roundScore();
+  const cycle = readCycle();
+  cycle.scores[levelIndex] = Math.max(cycle.scores[levelIndex]!, score);
+  const completeCycle = cycle.scores.every(value => value > 0);
+  const total = cycle.scores.reduce((sum, value) => sum + value, 0);
+  const best = completeCycle ? saveBest(total) : readBest();
+  writeCycle(completeCycle ? { scores: Array(levels.length).fill(0) as number[] } : cycle);
+  const remaining = levels.map((item, index) => cycle.scores[index] ? '' : item.name).filter(Boolean);
+  const displayScore = total;
+  const totalLabel = completeCycle ? `round points · best ${best}` : `cycle total · ${remaining.length} level${remaining.length === 1 ? '' : 's'} left`;
+  panel.innerHTML = `<div class="complete-card"><span class="complete-sparkle left">✦</span>${buddy(true)}<span class="complete-sparkle right">✦</span><h2>You found them all!</h2><p>A little victory for your day.</p><div class="score-card"><strong>${displayScore}</strong><span>${totalLabel}</span></div><p class="online-status" id="online-status" role="status">${completeCycle ? (onlineBoard ? 'Saving your full cycle to the leaderboard…' : 'Your best cycle is saved on this device.') : `Level score ${score}. Best per difficulty is kept for your current cycle.`}</p><button class="retry-score" id="retry-score" hidden>Try saving again</button>${completeCycle ? `<a class="leaderboard-link" href="${leaderboardUrl}" target="_blank" rel="noopener">See the leaderboard ↗</a>` : ''}<button class="primary-button" id="again">One more little adventure <span>→</span></button><button class="complete-home" id="complete-home">Back to the collections</button></div>`;
+  panel.querySelector('#again')?.addEventListener('click', startPuzzle);
   panel.querySelector('#complete-home')?.addEventListener('click', renderHome);
-  if (onlineBoard && activeRound) {
+  if (completeCycle && onlineBoard && activeRound) {
     const round = activeRound;
     const status = panel.querySelector<HTMLElement>('#online-status')!;
     const retry = panel.querySelector<HTMLButtonElement>('#retry-score')!;
@@ -212,7 +252,7 @@ function showCompletion(): void {
       retry.hidden = true;
       status.textContent = 'Saving to the leaderboard…';
       try {
-        const receipt = await onlineBoard.settleRound(round, score);
+        const receipt = await onlineBoard.settleRound(round, total);
         status.textContent = receipt.rank ? `Saved! Your rank: #${receipt.rank}` : 'Pocket points saved to the leaderboard.';
       } catch {
         status.textContent = 'Could not connect. Your best is saved on this device.';

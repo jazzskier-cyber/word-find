@@ -1,11 +1,12 @@
 export const LEADERBOARD_CONFIG = {
   platformOrigin: 'https://www.ai-made.games',
   gameId: '76069ac9-265c-452b-8834-4f4f63c9a345',
-  boardId: '4929e772-be77-40ce-9427-bdcdc43a6739',
+  boardId: 'f8de4541-68e7-48ee-af68-ac37d6df6834',
   order: 'desc',
   unit: 'points',
   minScore: 0,
-  maxScore: 1100,
+  // Three difficulty bests, each worth up to 1,100 points.
+  maxScore: 3300,
   minPlayMs: 0,
   enabled: true,
 } as const;
