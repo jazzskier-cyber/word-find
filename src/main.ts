@@ -142,11 +142,7 @@ function renderHome(): void {
 }
 function startPuzzle(): void {
   buildGrid(); found = new Map(); activePath = []; anchor = null; hintPoint = null; hintsUsed = 0; startedAt = Date.now();
-  const cycle = readCycle();
-  const otherLevelsPlayed = cycle.scores.filter((score, index) => index !== levelIndex && score > 0).length;
-  activeRound = onlineBoard && cycle.scores[levelIndex] === 0 && otherLevelsPlayed === levels.length - 1
-    ? onlineBoard.beginRound(levelIndex)
-    : null;
+  activeRound = onlineBoard ? onlineBoard.beginRound(levelIndex) : null;
   renderGame();
 }
 function boardSvg(): string {
@@ -243,14 +239,16 @@ function showCompletion(): void {
   const completeCycle = cycle.scores.every(value => value > 0);
   const total = cycle.scores.reduce((sum, value) => sum + value, 0);
   const best = completeCycle ? saveBest(total) : readBest();
-  writeCycle(completeCycle ? { scores: Array(levels.length).fill(0) as number[] } : cycle);
+  // Keep even a completed cycle until the leaderboard accepts it. If submission
+  // fails, the saved score remains available for another attempt.
+  writeCycle(cycle);
   const remaining = levels.map((item, index) => cycle.scores[index] ? '' : item.name).filter(Boolean);
   const displayScore = total;
   const totalLabel = completeCycle ? `round points · best ${best}` : `cycle total · ${remaining.length} level${remaining.length === 1 ? '' : 's'} left`;
-  panel.innerHTML = `<div class="complete-card"><span class="complete-sparkle left">✦</span>${buddy(true)}<span class="complete-sparkle right">✦</span><h2>You found them all!</h2><p>A little victory for your day.</p><div class="score-card"><strong>${displayScore}</strong><span>${totalLabel}</span></div><p class="online-status" id="online-status" role="status">${completeCycle ? (onlineBoard ? 'Saving your full cycle to the leaderboard…' : 'Your best cycle is saved on this device.') : `Level score ${score}. Best per difficulty is kept for your current cycle.`}</p><button class="retry-score" id="retry-score" hidden>Try saving again</button>${completeCycle ? `<a class="leaderboard-link" href="${leaderboardUrl}" target="_blank" rel="noopener">See the leaderboard ↗</a>` : ''}<button class="primary-button" id="again">One more little adventure <span>→</span></button><button class="complete-home" id="complete-home">Back to the collections</button></div>`;
+  panel.innerHTML = `<div class="complete-card"><span class="complete-sparkle left">✦</span>${buddy(true)}<span class="complete-sparkle right">✦</span><h2>You found them all!</h2><p>A little victory for your day.</p><div class="score-card"><strong>${displayScore}</strong><span>${totalLabel}</span></div><p class="online-status" id="online-status" role="status">${onlineBoard ? 'Saving your accumulated points to the leaderboard…' : (completeCycle ? 'Your best cycle is saved on this device.' : `Level score ${score}. Best per difficulty is kept for your current cycle.`)}</p><button class="retry-score" id="retry-score" hidden>Try saving again</button>${onlineBoard ? `<a class="leaderboard-link" href="${leaderboardUrl}" target="_blank" rel="noopener">See the leaderboard ↗</a>` : ''}<button class="primary-button" id="again">One more little adventure <span>→</span></button><button class="complete-home" id="complete-home">Back to the collections</button></div>`;
   panel.querySelector('#again')?.addEventListener('click', startPuzzle);
   panel.querySelector('#complete-home')?.addEventListener('click', renderHome);
-  if (completeCycle && onlineBoard && activeRound) {
+  if (onlineBoard && activeRound) {
     const round = activeRound;
     const status = panel.querySelector<HTMLElement>('#online-status')!;
     const retry = panel.querySelector<HTMLButtonElement>('#retry-score')!;
@@ -259,7 +257,8 @@ function showCompletion(): void {
       status.textContent = 'Saving to the leaderboard…';
       try {
         const receipt = await onlineBoard.settleRound(round, total);
-        status.textContent = receipt.rank ? `Saved! Your rank: #${receipt.rank}` : 'Pocket points saved to the leaderboard.';
+        if (completeCycle) writeCycle({ scores: Array(levels.length).fill(0) as number[] });
+        status.textContent = receipt.rank ? `Saved! Your rank: #${receipt.rank}` : `Accumulated ${total} points saved to the leaderboard.`;
       } catch {
         status.textContent = 'Could not connect. Your best is saved on this device.';
         retry.hidden = false;
